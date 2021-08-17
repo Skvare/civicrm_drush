@@ -1,0 +1,12 @@
+services:
+  civicrm_drush.civicrmdrushcommand:
+    class: \Drupal\civicrm_drush\Commands\CivicrmDrushCommands
+    arguments:
+      - '@module_handler'
+    tags:
+      - { name: drush.command }
+  civicrm_drush.civicrmdrushsqlcommand:
+    class: \Drupal\civicrm_drush\Commands\CivicrmDrushSqlCommands
+    arguments: []
+    tags:
+      - { name: drush.command }
