@@ -1,0 +1,12 @@
+{
+    "name": "drupal/civicrm_drush",
+    "type": "drupal-module",
+    "description": "Drush functionality for CiviCRM Core",
+    "license": "AGPL-3.0-only",
+    "homepage": "https://github.com/skvare/civicrm_drush",
+    "minimum-stability": "dev",
+    "support": {
+        "issues": "https://github.com/skvare/civicrm_drush",
+        "source": "https://github.com/skvare/civicrm_drush"
+    }
+}

@@ -2,6 +2,6 @@ name: 'CiviCRM Drush'
 type: module
 description: 'Drush functionality for CiviCRM Core'
 core_version_requirement: ^8 || ^9
-package: 'Custom'
+package: 'CiviCRM'
 dependencies:
   - civicrm
