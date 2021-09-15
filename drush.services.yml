@@ -6,6 +6,6 @@ services:
       - { name: drush.command }
   civicrm_drush.civicrmdrushsqlcommand:
     class: \Drupal\civicrm_drush\Commands\CivicrmDrushSqlCommands
-    arguments: []
+    arguments: ['@civicrm']
     tags:
       - { name: drush.command }
