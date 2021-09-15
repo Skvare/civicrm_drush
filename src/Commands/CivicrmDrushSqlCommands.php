@@ -3,6 +3,7 @@
 namespace Drupal\civicrm_drush\Commands;
 
 use Drush\Commands\sql\SqlCommands;
+use Drupal\civicrm\Civicrm;
 use Symfony\Component\Console\Input\InputInterface;
 
 /**
@@ -28,7 +29,7 @@ class CivicrmDrushSqlCommands extends SqlCommands {
    * CivicrmDrushSqlCommands constructor.
    *
    * @param \Drupal\civicrm\Civicrm $civicrm
-   *   The module_handler service.
+   *   The civicrm service.
    */
   public function __construct(Civicrm $civicrm) {
     $this->civicrm = $civicrm;
