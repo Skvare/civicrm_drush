@@ -32,7 +32,7 @@ class CivicrmDrushCommands extends DrushCommands {
   /**
    * A SqlBase object pointing to the CiviCRM database.
    *
-   * @var |Drush\Sql\SqlBase
+   * @var \Drush\Sql\SqlBase
    */
   private $dbObject;
 
@@ -107,7 +107,7 @@ class CivicrmDrushCommands extends DrushCommands {
    */
   public function drushCivicrmCacheclear(array &$types, $includeBootstrappedTypes) {
     if ($includeBootstrappedTypes && $this->moduleHandler->moduleExists('civicrm')) {
-      $types['civicrm'] = 'civicrmClearCache';
+      $types['civicrm'] = [$this, 'civicrmClearCache'];
     }
   }
 
@@ -579,7 +579,7 @@ class CivicrmDrushCommands extends DrushCommands {
    *
    * @throws \Exception
    */
-  private function civicrmClearCache(array $options = []) {
+  public function civicrmClearCache(array $options = []) {
     $this->civicrmInit();
 
     if ($options['triggers']) {
