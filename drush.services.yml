@@ -1,8 +1,7 @@
 services:
   civicrm_drush.civicrmdrushcommand:
     class: \Drupal\civicrm_drush\Commands\CivicrmDrushCommands
-    arguments:
-      - '@module_handler'
+    arguments: ['@module_handler', '@civicrm', '@router.builder', '@entity_type.manager']
     tags:
       - { name: drush.command }
   civicrm_drush.civicrmdrushsqlcommand:

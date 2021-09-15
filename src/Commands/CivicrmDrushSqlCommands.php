@@ -11,24 +11,40 @@ use Symfony\Component\Console\Input\InputInterface;
 class CivicrmDrushSqlCommands extends SqlCommands {
 
   /**
-   * An array of options that can be passed to SqlBase::create to reference the CiviCRM database.
+   * An array of options that can be passed to SqlBase.
    *
    * @var array
    */
   protected $civiDbOptions;
 
   /**
+   * The CiviCRM service.
+   *
+   * @var \Drupal\civicrm\Civicrm
+   */
+  protected $civicrm;
+
+  /**
+   * CivicrmDrushSqlCommands constructor.
+   *
+   * @param \Drupal\civicrm\Civicrm $civicrm
+   *   The module_handler service.
+   */
+  public function __construct(Civicrm $civicrm) {
+    $this->civicrm = $civicrm;
+  }
+
+  /**
    * Print CiviCRM database connection details.
    *
    * @command civicrm:sql-conf
-   *
    */
   public function drushCivicrmSqlconf() {
     $this->civicrmDsnInit();
     $options = array_merge([
       'format' => 'yaml',
       'all' => FALSE,
-      'show-passwords' => FALSE
+      'show-passwords' => FALSE,
     ], $this->civiDbOptions);
 
     return print_r($this->conf($options));
@@ -62,8 +78,17 @@ class CivicrmDrushSqlCommands extends SqlCommands {
    *   Save SQL dump to the directory above Drupal root.
    * @hidden-options create-db
    */
-  public function drushCivicrmSqldump(array $options = ['result-file' =>
-    self::REQ, 'create-db' => FALSE, 'data-only' => FALSE, 'ordered-dump' => FALSE, 'gzip' => FALSE, 'extra' => self::REQ, 'extra-dump' => self::REQ, 'format' => 'null']) {
+  public function drushCivicrmSqldump(array $options = [
+    'result-file' =>
+    self::REQ,
+    'create-db' => FALSE,
+    'data-only' => FALSE,
+    'ordered-dump' => FALSE,
+    'gzip' => FALSE,
+    'extra' => self::REQ,
+    'extra-dump' => self::REQ,
+    'format' => 'null',
+  ]) {
     $this->civicrmDsnInit();
     $this->dump(array_merge($options, $this->civiDbOptions));
   }
@@ -95,7 +120,7 @@ class CivicrmDrushSqlCommands extends SqlCommands {
    * Initialise CiviCRM.
    */
   private function civicrmInit() {
-    \Drupal::service('civicrm')->initialize();
+    $this->civicrm->initialize();
   }
 
   /**
@@ -107,4 +132,5 @@ class CivicrmDrushSqlCommands extends SqlCommands {
       'db-url' => CIVICRM_DSN,
     ];
   }
+
 }

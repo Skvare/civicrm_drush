@@ -3,11 +3,13 @@
 namespace Drupal\civicrm_drush\Commands;
 
 use Dompdf\Exception;
-use Drupal\user\Entity\User;
+use Drupal\civicrm\Civicrm;
+use Drupal\Core\Routing\RouteBuilderInterface;
 use Consolidation\OutputFormatters\StructuredData\RowsOfFields;
 use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drush\Commands\DrushCommands;
 use Drush\Sql\SqlBase;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 
 /**
  * @file
@@ -49,14 +51,43 @@ class CivicrmDrushCommands extends DrushCommands {
   protected $root;
 
   /**
+   * The CiviCRM service.
+   *
+   * @var \Drupal\civicrm\Civicrm
+   */
+  protected $civicrm;
+
+  /**
+   * The Route Builder service.
+   *
+   * @var \Drupal\Core\Routing\RouteBuilderInterface
+   */
+  private $routeBuilder;
+
+  /**
+   * The entity type manager.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  protected $entityTypeManager;
+
+  /**
    * CivicrmDrushCommands constructor.
    *
    * @param \Drupal\Core\Extension\ModuleHandlerInterface $moduleHandler
    *   The module_handler service.
+   * @param \Drupal\civicrm\Civicrm $civicrm
+   *   The civicrm service.
+   * @param \Drupal\Core\Routing\RouteBuilderInterface $routeBuilder
+   *   The Routing service.
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
+   *   The entity type manager.
    */
-  public function __construct(ModuleHandlerInterface $moduleHandler) {
-    parent::__construct();
+  public function __construct(ModuleHandlerInterface $moduleHandler, Civicrm $civicrm, RouteBuilderInterface $routeBuilder, EntityTypeManagerInterface $entity_type_manager) {
     $this->moduleHandler = $moduleHandler;
+    $this->civicrm = $civicrm;
+    $this->routeBuilder = $routeBuilder;
+    $this->entityTypeManager = $entity_type_manager;
     $this->root = dirname(dirname(substr(__DIR__, 0, -strlen(__NAMESPACE__))));
   }
 
@@ -86,7 +117,7 @@ class CivicrmDrushCommands extends DrushCommands {
    * @command civicrm:route-rebuild
    */
   public function drushCivicrmRouteRebuild() {
-    \Drupal::service("router.builder")->rebuild();
+    $this->routeBuilder->rebuild();
 
     $this->output()->writeln(dt('Route rebuild complete.'));
   }
@@ -135,6 +166,7 @@ class CivicrmDrushCommands extends DrushCommands {
     $facility = new \CRM_Core_JobManager();
     $facility->setSingleRunParams('Job', 'process_mailing', [], 'Started by drush');
     $facility->executeJobByAction('Job', 'process_mailing');
+
     return dt('CiviCRM mailing queue processed.');
   }
 
@@ -185,7 +217,7 @@ class CivicrmDrushCommands extends DrushCommands {
     list($entity, $action) = explode('.', $args[0]);
     array_shift($args);
     $this->civicrmInit();
-    $user = User::load($options['uid']);
+    $user = $this->entityTypeManager->getStorage('user')->load($options['uid']);
     \CRM_Core_BAO_UFMatch::synchronize($user, FALSE, 'Drupal', 'Individual');
     $params = $default;
     if ($options['in'] == 'json') {
@@ -236,7 +268,7 @@ class CivicrmDrushCommands extends DrushCommands {
           'limit' => 0,
         ],
       ]);
-      foreach ($result['values'] as $k => $extension_data) {
+      foreach ($result['values'] as $extension_data) {
         $rows[] = [
           'key' => $extension_data['key'],
           'status' => $extension_data['status'],
@@ -248,8 +280,6 @@ class CivicrmDrushCommands extends DrushCommands {
     catch (\CiviCRM_API3_Exception $e) {
       // Handle error here.
       $errorMessage = $e->getMessage();
-      $errorCode = $e->getErrorCode();
-      $errorData = $e->getExtraParams();
       throw new \Exception(
         dt("!error", ['!error' => $errorMessage])
       );
@@ -357,7 +387,6 @@ class CivicrmDrushCommands extends DrushCommands {
     if (!defined('CIVICRM_UPGRADE_ACTIVE')) {
       define('CIVICRM_UPGRADE_ACTIVE', 1);
     }
-    $_GET['q'] = 'civicrm/upgrade';
     $this->civicrmInit();
     $_POST['upgrade'] = 1;
     $_GET['q'] = 'civicrm/upgrade';
@@ -486,7 +515,6 @@ class CivicrmDrushCommands extends DrushCommands {
     $restore_dir = $options['restore-dir'];
     $restore_dir = rtrim($restore_dir, '/');
 
-    $date = date('YmdHis');
     $drupal_root = $this->root;
     $civicrm_root_base = '';
     $this->civicrmDsnInit();
@@ -540,7 +568,7 @@ class CivicrmDrushCommands extends DrushCommands {
    * Initialise CiviCRM.
    */
   private function civicrmInit() {
-    \Drupal::service('civicrm')->initialize();
+    $this->civicrm->initialize();
   }
 
   /**
@@ -614,14 +642,12 @@ class CivicrmDrushCommands extends DrushCommands {
           ['!ename' => $name, '!message' => $message]));
       }
       else {
-        throw new \Exception(t('Extension !ename could not be !message.',
+        throw new \Exception(dt('Extension !ename could not be !message.',
           ['!ename' => $name, '!message' => $message]));
       }
     }
     catch (\CiviCRM_API3_Exception $e) {
       $errorMessage = $e->getMessage();
-      $errorCode = $e->getErrorCode();
-      $errorData = $e->getExtraParams();
       throw \Exception(dt("!error", ['!error' => $errorMessage]));
     }
   }
