@@ -8,5 +8,8 @@
     "support": {
         "issues": "https://github.com/skvare/civicrm_drush",
         "source": "https://github.com/skvare/civicrm_drush"
+    },
+    "require": {
+      "civicrm/civicrm-drupal-8": "*"
     }
 }

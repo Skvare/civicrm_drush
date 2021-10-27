@@ -4,4 +4,4 @@ description: 'Drush functionality for CiviCRM Core'
 core_version_requirement: ^8 || ^9
 package: 'CiviCRM'
 dependencies:
-  - civicrm:civicrm
+  - civicrm
