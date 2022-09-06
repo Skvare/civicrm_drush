@@ -2,7 +2,7 @@
 
 namespace Drupal\civicrm_drush\Commands;
 
-use Dompdf\Exception;
+use Drupal\civicrm_drush\Util\ConsoleQueueRunner;
 use Drupal\civicrm\Civicrm;
 use Drupal\Core\Routing\RouteBuilderInterface;
 use Consolidation\OutputFormatters\StructuredData\RowsOfFields;
@@ -10,6 +10,7 @@ use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drush\Commands\DrushCommands;
 use Drush\Sql\SqlBase;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * @file
@@ -161,13 +162,30 @@ class CivicrmDrushCommands extends DrushCommands {
    * @return string
    *   Output to show the message about process is completed.
    */
-  public function drushCivicrmProcessMailQueue() {
+  public function drushCivicrmProcessMailQueue(array $options = [
+    'uid' => 1,
+    'in' => 'args',
+    'out' => 'pretty',
+  ]) {
     $this->civicrmInit();
-    $facility = new \CRM_Core_JobManager();
-    $facility->setSingleRunParams('Job', 'process_mailing', [], 'Started by drush');
-    $facility->executeJobByAction('Job', 'process_mailing');
+    $user = $this->entityTypeManager->getStorage('user')->load($options['uid']);
+    if (is_null($user)) {
+      throw new \Exception(
+        dt("Failed to find Drupal user (!error)", ['!error' => $options['uid']])
+      );
+    }
+    user_login_finalize($user);
+    \CRM_Core_BAO_UFMatch::synchronize($user, FALSE, 'Drupal', 'Individual');
+    try {
+      $result = civicrm_api3('Job', 'process_mailing', []);
+    }
+    catch (\CiviCRM_API3_Exception $exception) {
+      throw new \Exception(
+        dt($exception->getMessage() . ', Check User permissions, provide correct user id for --uid parameter')
+      );
+    }
 
-    return dt('CiviCRM mailing queue processed.');
+    return $options['out'] == 'pretty' ? print_r($result, TRUE) : json_encode($result, JSON_PRETTY_PRINT);
   }
 
   /**
@@ -214,10 +232,16 @@ class CivicrmDrushCommands extends DrushCommands {
                                   ]) {
     $default = ['version' => 3];
     $args = $commands;
-    list($entity, $action) = explode('.', $args[0]);
+    [$entity, $action] = explode('.', $args[0]);
     array_shift($args);
     $this->civicrmInit();
     $user = $this->entityTypeManager->getStorage('user')->load($options['uid']);
+    if (is_null($user)) {
+      throw new \Exception(
+        dt("Failed to find Drupal user (!error)", ['!error' => $options['uid']])
+      );
+    }
+    user_login_finalize($user);
     \CRM_Core_BAO_UFMatch::synchronize($user, FALSE, 'Drupal', 'Individual');
     $params = $default;
     if ($options['in'] == 'json') {
@@ -336,8 +360,6 @@ class CivicrmDrushCommands extends DrushCommands {
    *
    * Especially when the CiviCRM site has been cloned / migrated.
    *
-   * @todo Do we need to validate?
-   *
    * @param string $url
    *   The site url.
    *
@@ -378,9 +400,6 @@ class CivicrmDrushCommands extends DrushCommands {
    *
    * @command civicrm:db-validate
    *
-   * @return bool
-   *   Return true if no error found.
-   *
    * @throws \Exception
    */
   public function drushCivicrmUpgradeDbValidate() {
@@ -413,55 +432,148 @@ class CivicrmDrushCommands extends DrushCommands {
         ['!dbVer' => $dbVer, '!codeVer' => $codeVer]));
     }
 
-    return TRUE;
+    $this->output()->writeln(dt('CiviCRM Database version in sync with code.'));
   }
 
   /**
    * Execute the civicrm/upgrade?reset=1 process from the command line.
    *
-   * @todo Do we need to validate?
+   * @param array $options
+   *   Options for CiviCRM command.
    *
    * @command civicrm:upgrade-db
    * @aliases cvupdb
+   * @option step Step: "0" (command-line), "0" (STDIN).
+   * @option retry Retry: "0" (command-line), "0" (STDIN).
+   * @option skip Skip: "0" (command-line), "0" (STDIN).
+   * @option dry-run Dry Run: "0" (command-line), "0" (STDIN).
+   * @option out Output type: "pretty" (STDOUT), "json" (STDOUT).
    */
-  public function drushCivicrmUpgradeDb() {
+  public function drushCivicrmUpgradeDb(array $options = [
+    'step' => 0,
+    'retry' => 0,
+    'skip' => 0,
+    'dry-run' => 0,
+    'out' => 'pretty',
+  ]) {
     $this->civicrmInit();
-    if (class_exists('CRM_Upgrade_Headless')) {
-      // Note: CRM_Upgrade_Headless introduced in 4.2 --
-      // at the same time as class auto-loading.
-      try {
-        $upgradeHeadless = new \CRM_Upgrade_Headless();
-        // FIXME Exception handling?
-        $result = $upgradeHeadless->run();
-        $this->output()->writeln("Upgrade outputs: " . "\"" . $result['message'] . "\"");
+    $niceMsgVerbosity = $options['out'] === 'pretty' ?
+      OutputInterface::VERBOSITY_NORMAL : OutputInterface::VERBOSITY_VERBOSE;
+
+    $isFirstTry = !$options['retry'] && !$options['skip'];
+
+    $codeVer = \CRM_Utils_System::version();
+    $dbVer = \CRM_Core_BAO_Domain::version();
+    $postUpgradeMessageFile = \CRM_Utils_File::tempnam('civicrm-post-upgrade');
+    $this->output()->writeln(sprintf("<info>Found CiviCRM database version <comment>%s</comment>.</info>", $dbVer), $niceMsgVerbosity);
+    $this->output()->writeln(sprintf("<info>Found CiviCRM code version <comment>%s</comment>.</info>", $codeVer), $niceMsgVerbosity);
+
+    if (version_compare($codeVer, $dbVer) == 0) {
+      $result = [
+        'latestVer' => $codeVer,
+        'message' => "You are already upgraded to CiviCRM $codeVer",
+      ];
+      $result['text'] = $result['message'];
+      $this->output()->writeln("Upgrade outputs: " . "\"" . $result['text'] . "\"");
+      unlink($postUpgradeMessageFile);
+
+      return 1;
+    }
+
+    if ($isFirstTry && FALSE !== stripos($dbVer, 'upgrade')) {
+      $this->output()->writeln("<error>Cannot begin upgrade: The database indicates that an incomplete upgrade is pending. If you would like to resume, use --retry or --skip.</error>");
+
+      return 1;
+    }
+    if (!$isFirstTry && !file_exists($postUpgradeMessageFile)) {
+      $this->output()->writeln("<error>Cannot resume upgrade: The log file ($postUpgradeMessageFile) is missing. Consider a regular upgrade (without --retry or --skip).</error>");
+
+      return 1;
+    }
+
+    $upgrade = new \CRM_Upgrade_Form();
+
+    if ($error = $upgrade->checkUpgradeableVersion($dbVer, $codeVer)) {
+      $this->output()->writeln("<error>{$error}</error>");
+
+      return 1;
+    }
+
+    if ($isFirstTry) {
+      $this->output()->writeln("<info>Checking pre-upgrade messages...</info>", $niceMsgVerbosity);
+      $preUpgradeMessage = NULL;
+      $upgrade->setPreUpgradeMessage($preUpgradeMessage, $dbVer, $codeVer);
+      if ($preUpgradeMessage) {
+        $this->output()->writeln(\CRM_Utils_String::htmlToText($preUpgradeMessage), $niceMsgVerbosity);
+        if (!$this->io()->confirm('Continue?')) {
+          $this->output()->writeln("<error>Abort</error>");
+
+          return 1;
+        }
       }
-      catch (Exception $exception) {
-        $this->output()->writeln("Upgrade Error: " . "\"" . $exception->getMessage() . "\"");
+      else {
+        $this->output()->writeln("(No messages)", $niceMsgVerbosity);
+      }
+    }
+
+    // Why is dropTriggers() hard-coded? Can't we just enqueue this as part
+    // of buildQueue()?
+    if ($isFirstTry) {
+      $this->output()->writeln("<info>Dropping SQL triggers...</info>", $niceMsgVerbosity);
+      if (!$options['dry-run']) {
+        \CRM_Core_DAO::dropTriggers();
+      }
+    }
+    if ($isFirstTry) {
+      $this->output()->writeln("<info>Preparing upgrade...</info>", $niceMsgVerbosity);
+      file_put_contents($postUpgradeMessageFile, "");
+      chmod($postUpgradeMessageFile, 0700);
+      $queue = \CRM_Upgrade_Form::buildQueue($dbVer, $codeVer, $postUpgradeMessageFile);
+      if (!($queue instanceof \CRM_Queue_Queue_Sql)) {
+        // Sanity check -- only SQL queues are resuamble.
+        $this->output()->writeln("<error>Error: \"drush civicrm:upgrade-db\" only supports SQL-based queues.</error>");
+
+        return 1;
       }
     }
     else {
-      require_once 'CRM/Core/Smarty.php';
-      require_once 'CRM/Upgrade/Page/Upgrade.php';
+      $this->output()->writeln("<info>Resuming upgrade...</info>",
+        $niceMsgVerbosity);
+      $queue = \CRM_Queue_Service::singleton()->load([
+        'name' => \CRM_Upgrade_Form::QUEUE_NAME,
+        'type' => 'Sql',
+      ]);
 
-      $template = \CRM_Core_Smarty::singleton();
-
-      $upgrade = new \CRM_Upgrade_Page_Upgrade();
-
-      // New since CiviCRM 4.1.
-      if (is_callable([
-        $upgrade, 'setPrint',
-      ])) {
-        $upgrade->setPrint(TRUE);
+      if ($options['skip']) {
+        $item = $queue->stealItem();
+        $this->output()->writeln(sprintf("<error>Skip task: %s</error>",
+          $item->data->title));
+        $queue->deleteItem($item);
       }
-
-      // To suppress html output /w source code.
-      ob_start();
-      $upgrade->run();
-      // Capture the required message.
-      $result = $template->get_template_vars('message');
-      ob_end_clean();
-      $this->output()->writeln("Upgrade outputs: " . $result);
     }
+
+    $this->output()->writeln("<info>Executing upgrade...</info>", $niceMsgVerbosity);
+    $runner = new ConsoleQueueRunner($this->io(), $queue, $options['dry-run'],
+      $options['step']);
+    $runner->runAll();
+
+    $this->output()->writeln("<info>Finishing upgrade...</info>", $niceMsgVerbosity);
+    if (!$options['dry-run']) {
+      \CRM_Upgrade_Form::doFinish();
+    }
+
+    $this->output()->writeln("<info>Upgrade to <comment>$codeVer</comment> completed.</info>", $niceMsgVerbosity);
+
+    $this->output()->writeln("<info>Checking post-upgrade messages...</info>", $niceMsgVerbosity);
+    $message = file_get_contents($postUpgradeMessageFile);
+    $result = [
+      'latestVer' => $codeVer,
+      'message' => $message,
+      'text' => \CRM_Utils_String::htmlToText($message),
+    ];
+
+    $this->output()->writeln("Upgrade outputs: " . "\"" . $result['text'] . "\"");
+    unlink($postUpgradeMessageFile);
   }
 
   /**
