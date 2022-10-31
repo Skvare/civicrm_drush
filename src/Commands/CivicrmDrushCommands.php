@@ -166,14 +166,26 @@ class CivicrmDrushCommands extends DrushCommands {
     'uid' => 1,
     'in' => 'args',
     'out' => 'pretty',
+    'name' => '',
   ]) {
     $this->civicrmInit();
-    $user = $this->entityTypeManager->getStorage('user')->load($options['uid']);
-    if (is_null($user)) {
-      throw new \Exception(
-        dt("Failed to find Drupal user (!error)", ['!error' => $options['uid']])
-      );
+    $user = NULL;
+    if (!is_null($options['name']) && !$user = user_load_by_name($options['name'])) {
+      throw new \Exception(dt('Unable to load user by name: !name', ['!name' => $options['name']]));
     }
+    if (!empty($options['uid'])) {
+      $user = $this->entityTypeManager->getStorage('user')->load($options['uid']);
+      if (is_null($user)) {
+        throw new \Exception(
+          dt("Failed to find Drupal user (!error)", ['!error' => $options['uid']])
+        );
+      }
+    }
+
+    if (is_null($user)) {
+      throw new \Exception(dt('uid and name options are empty.'));
+    }
+
     user_login_finalize($user);
     \CRM_Core_BAO_UFMatch::synchronize($user, FALSE, 'Drupal', 'Individual');
     try {
