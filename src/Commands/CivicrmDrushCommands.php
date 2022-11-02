@@ -425,6 +425,9 @@ class CivicrmDrushCommands extends DrushCommands {
    * @aliases cvupdb
    */
   public function drushCivicrmUpgradeDb() {
+    if (!defined('CIVICRM_UPGRADE_ACTIVE')) {
+      define('CIVICRM_UPGRADE_ACTIVE', 1);
+    }
     $this->civicrmInit();
     if (class_exists('CRM_Upgrade_Headless')) {
       // Note: CRM_Upgrade_Headless introduced in 4.2 --
